@@ -1,0 +1,66 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.11-alpine
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./clickhouse/data:/var/lib/clickhouse:Z
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:Z
+    environment:
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 -O - http://127.0.0.1:8123/ping || exit 1",
+        ]
+      start_period: 1m
+
+  mariadb:
+    image: mariadb:10.11
+    container_name: mariadb
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MARIADB_DATABASE}
+      - MYSQL_USER=${MARIADB_USER}
+      - MYSQL_PASSWORD=${MARIADB_PASSWORD}
+    volumes:
+      - ./mariadb/data:/var/lib/mysql:Z
+      - ./mariadb/init:/docker-entrypoint-initdb.d:Z
+    command:
+      - --character-set-server=utf8
+      - --collation-server=utf8_general_ci
+    healthcheck:
+      test:
+        ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migration:
+    build:
+      context: ./migration
+    environment:
+      - MYSQL_HOST=${MYSQL_SOURCE_HOST}
+      - MYSQL_USER=${MYSQL_SOURCE_USER}
+      - MYSQL_PASSWORD=${MYSQL_SOURCE_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_SOURCE_DATABASE}
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_DATABASE=${CLICKHOUSE_DB}
+      - MARIADB_TARGET_HOST=mariadb
+      - MARIADB_TARGET_USER=${MARIADB_USER}
+      - MARIADB_TARGET_PASSWORD=${MARIADB_PASSWORD}
+      - MARIADB_TARGET_DATABASE=${MARIADB_DATABASE}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
